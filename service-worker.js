@@ -30,20 +30,23 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  // Never cache GitHub API calls — always go to network (app cache-busts).
+  // Never touch GitHub API calls — always straight to network (app cache-busts).
   if (url.hostname === 'api.github.com') return;
-  // Cache-first for our own shell; runtime-cache same-origin GETs.
-  if (url.origin === self.location.origin) {
-    e.respondWith(
-      caches.match(e.request).then(hit => hit || fetch(e.request).then(resp => {
-        if (e.request.method === 'GET' && resp.ok) {
-          const copy = resp.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
-        }
-        return resp;
-      }).catch(() => caches.match('./index.html')))
-    );
-  }
+  if (e.request.method !== 'GET') return;
+  if (url.origin !== self.location.origin) return;
+
+  // NETWORK-FIRST for our own shell so a new deploy takes effect immediately
+  // (a cache-first SW would pin users to stale HTML/CSS/JS after an update).
+  // Falls back to cache only when offline — preserving installable/offline use.
+  e.respondWith(
+    fetch(e.request).then(resp => {
+      if (resp && resp.ok) {
+        const copy = resp.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      }
+      return resp;
+    }).catch(() => caches.match(e.request).then(hit => hit || caches.match('./index.html')))
+  );
 });
 
 // Optional future push hook (no backend sends in v1).
